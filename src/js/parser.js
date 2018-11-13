@@ -12,14 +12,15 @@ const TYPES = {
     ElseStatement: 'else if statement',
     CallExpression: 'call expression',
     ReturnStatement: 'return statement'
-}
+};
 
 function objectToTable(obj) {
-    var body = obj.body
+    clearTable();
+    var body = obj.body;
 
     if (body) {
-        // line++;
-        getBody(body)
+        getBody(body);
+        return { line, _container };
     }
 }
 
@@ -30,31 +31,30 @@ function handleFuncDec(obj) {
         name: obj.id.name,
         condition: '',
         value: ''
-    }
+    };
 
-    _container.push(_newLine)
+    _container.push(_newLine);
 
     if (obj.params.length > 0) {
         obj.params.forEach(param => {
-            handleParams(param)
-        })
+            handleParams(param);
+        });
     }
-
-    return _newLine
+    return _newLine;
 }
 
-function handleParams(param) {  
+function handleParams(param) {
     var _newLine = {
         line,
         type: 'variable declaration',
         name: param.name,
         condition: '',
         value: ''
-    }
-    
-    _container.push(_newLine)
+    };
 
-    return _newLine
+    _container.push(_newLine);
+
+    return _newLine;
 }
 
 function handleVarDec(obj) {
@@ -65,102 +65,141 @@ function handleVarDec(obj) {
             type: TYPES[obj.type],
             name: declare.id.name,
             condition: '',
-            value: declare.init ? declare.init.value || declare.init.name : ''
-        }
+            value: declare.init ? recursiveChilds(declare.init) : ''
+        };
 
-        _container.push(_newLine)
-    })
+        _container.push(_newLine);
+    });
 
-    return _newLine
+    return _newLine;
 }
 
-function handleConsequent(obj){
-    return getBody([obj.consequent])
-}
+function handleAlternate(obj) {
+    var _obj = JSON.parse(JSON.stringify(obj.alternate));
+    var _newLine;
+    const CURRENT_LINE = line + 1;
 
-function handleAlternate(obj){
-    var _obj = JSON.parse(JSON.stringify(obj.alternate))
+    _obj.type = _obj.type == 'IfStatement' ? 'ElseStatement' : _obj.type;
 
-    _obj.type = _obj.type == "IfStatement" ? 'ElseStatement' : _obj.type
+    if (_obj.type != 'ElseStatement') {
+        _newLine = {
+            line: line + 1, type: 'else statement', name: '', value: '', condition: ''
+        };
 
-    if (_obj.type != "ElseStatement") {
-        _container.push({
-            line: line + 1,
-            type: 'else statement',
-            name: '',
-            value: '',
-            condition: ''
-        })
+        _container.push(_newLine);
     }
-    // line++;
-    return getBody([_obj])
+    getBody([_obj]);
+
+    if (CURRENT_LINE)
+        return _container.find(o => o.line == CURRENT_LINE);
+}
+
+function handleConsequent(obj) {
+    if (obj.consequent.body) {
+        getBody(obj.consequent.body);
+    }
+    else {
+        getBody([obj.consequent]);
+    }
+}
+
+function handleInnerStates(obj) {
+    if (obj.consequent)
+        handleConsequent(obj);
+    if (obj.alternate)
+        handleAlternate(obj);
 }
 
 function handleLoops(obj) {
-    const _TEST = obj.test
-
-    var _newObj = {
-        line,
-        type: TYPES[obj.type],
-        name: '',
-        value: ''
-    }
-
-    var _cond = ''
-
+    const _TEST = obj.test;
+    var _newObj = { line, type: TYPES[obj.type], name: '', value: '' }, _cond;
     if (_TEST) {
-        _cond = recursiveChilds(_TEST).toString()
-        _cond = _cond.startsWith('(') ? _cond.substring(1).substring(0, _cond.length - 2).trim() : _cond
+        _cond = recursiveChilds(_TEST).toString();
+        _cond = _cond.startsWith('(') ? _cond.substring(1).substring(0, _cond.length - 2).trim() : _cond;
 
-        _newObj.condition = _cond
-        _container.push(_newObj)
+        _newObj.condition = _cond;
+        _container.push(_newObj);
     }
-
-    if (obj.type == "IfStatement" || obj.type == "ElseStatement") {
-        if (obj.consequent) {
-            // line++
-            handleConsequent(obj)
-        }
-
-        if (obj.alternate) {
-            handleAlternate(obj)
-        }
+    if (obj.type == 'IfStatement' || obj.type == 'ElseStatement') {
+        handleInnerStates(obj);
     }
-
-    return _newObj
+    return _newObj;
 }
 
-function handleExpression(obj) {
-    const _EXPRESSION = obj.expression
+function init_forHandler(obj) {
+    var _res;
+    if (obj.init.type == 'VariableDeclaration') {
+        _res = handleVarDec(obj.init);
+        return obj.init.kind + ' ' + _res.name + ' = ' + _res.value;
+    } else if (obj.init.type == 'AssignmentExpression') {
+        _res = handleExpression({ expression: obj.init }, true);
+        return _res.name + ' = ' + _res.value;
+    }
+}
 
-    var _newObj = {
-        line,
-        type: TYPES[_EXPRESSION.type],
-        condition: ''
+function update_forHandler(obj) {
+    var _res = '';
+    if (obj.update.type == 'AssignmentExpression') {
+        var tmp = handleExpression({ expression: obj.update }, true);
+        _res = tmp.name + ' = ' + tmp.value;
+    } else if (obj.update.type == 'UpdateExpression') {
+        _res = '' + obj.update.argument.name + obj.update.operator;
     }
 
-    if (_EXPRESSION.operator == "=") {
-        _newObj.name = _EXPRESSION.left.name || _EXPRESSION.left.value
-        var _value = ''
+    return _res;
+}
 
-        if (_EXPRESSION.right) {
-            _value = recursiveChilds(_EXPRESSION.right).toString()
-            _value = _value.startsWith('(') ? _value.substring(1).substring(0, _value.length - 2).trim() : _value
+function handleForStatement(obj) {
+    var init = init_forHandler(obj);
+    var test = recursiveChilds(obj.test);
+    var update = update_forHandler(obj);
 
-            _newObj.value = _value
-            _container.push(_newObj)
-        }
-    }else if(_EXPRESSION.callee){
-        var _value = recursiveChilds(_EXPRESSION.callee).toString()
-        _value = _value.startsWith('(') ? _value.substring(1).substring(0, _value.length - 2).trim() : _value
+    test = test.startsWith('(') ? test.substring(1).substring(0, test.length - 2).trim() : test;
 
-        _newObj.name = _value
-        _newObj.value = ''
-    
-        _container.push(_newObj)
+    _container.push({ line, type: TYPES[obj.type], name: '', value: '', condition: init + ';' + test + ';' + update });
+
+    if (obj.body) {
+        if (obj.body.type != 'BlockStatement')
+            getBody([obj.body]);
+    }
+}
+
+function handleOperator(_newObj, _EXPRESSION, dontPush) {
+    _newObj.name = _EXPRESSION.left.name || _EXPRESSION.left.value;
+    var _value = '';
+
+    if (_EXPRESSION.right) {
+        _value = recursiveChilds(_EXPRESSION.right).toString();
+        _value = _value.startsWith('(') ? _value.substring(1).substring(0, _value.length - 2).trim() : _value;
+
+        _newObj.value = _value;
+        if (!dontPush)
+            _container.push(_newObj);
     }
 
-    return _newObj
+    return _newObj;
+}
+
+function handleExpression(obj, dontPush) {
+    const _EXPRESSION = obj.expression;
+    var _newObj = { line, type: TYPES[_EXPRESSION.type], condition: '' };
+
+    if (_EXPRESSION.operator == '=') {
+        _newObj = handleOperator(_newObj, _EXPRESSION, dontPush);
+    } else if (_EXPRESSION.callee) {
+        handleCallee(_newObj, _EXPRESSION);
+    }
+    return _newObj;
+}
+
+function handleCallee(_newObj, _EXPRESSION) {
+    var _value = recursiveChilds(_EXPRESSION.callee).toString();
+    _value = _value.startsWith('(') ? _value.substring(1).substring(0, _value.length - 2).trim() : _value;
+
+    _newObj.name = _value;
+    _newObj.value = '';
+
+    _container.push(_newObj);
 }
 
 function handleReturn(obj) {
@@ -169,19 +208,51 @@ function handleReturn(obj) {
         type: TYPES[obj.type],
         name: '',
         condition: ''
+    };
+
+    var _val = recursiveChilds(obj.argument).toString();
+    _val = _val.startsWith('(') ? _val.substring(1).substring(0, _val.length - 2).trim() : _val;
+
+    _newObj.value = _val;
+    _container.push(_newObj);
+
+    return _newObj;
+}
+
+function isLoop(obj) {
+    return obj.type == 'WhileStatement' || obj.type == 'IfStatement' || obj.type == 'ElseStatement';
+}
+
+function typeHandler(obj) {
+    if (obj.type == 'FunctionDeclaration') {
+        handleFuncDec(obj);
+    } else if (obj.type == 'VariableDeclaration') {
+        handleVarDec(obj);
+    } else
+        typeHandler2(obj);
+}
+
+function typeHandler2(obj) {
+    if (obj.type == 'ExpressionStatement') {
+        handleExpression(obj);
+    } else if (isLoop(obj)) {
+        handleLoops(obj);
     }
+    else
+        typeHandler3(obj);
+}
 
-    var _val = recursiveChilds(obj.argument).toString()
-    _val = _val.startsWith('(') ? _val.substring(1).substring(0, _val.length - 2).trim() : _val
-
-    _newObj.value = _val
-    _container.push(_newObj)
+function typeHandler3(obj) {
+    if (obj.type == 'ReturnStatement') {
+        handleReturn(obj);
+    } else if (obj.type == 'ForStatement') {
+        handleForStatement(obj);
+    }
 }
 
 function getBody(_body) {
-    if (_body.type == "BlockStatement") {
-        getBody(_body.body)
-
+    if (_body.type == 'BlockStatement') {
+        getBody(_body.body);
         return;
     }
 
@@ -189,71 +260,68 @@ function getBody(_body) {
         line++;
         const obj = _body[index];
 
-        if (obj.type == "FunctionDeclaration") {
-            handleFuncDec(obj)
-        } else if (obj.type == "BlockStatement") {
-            //continue
-        } else if (obj.type == "VariableDeclaration") {
-            handleVarDec(obj)
-        } else if (obj.type == "ExpressionStatement") {
-            handleExpression(obj)
-        } else if (obj.type == "WhileStatement" || obj.type == "IfStatement" || obj.type == "ElseStatement") {
-            handleLoops(obj)
-        } else if (obj.type == "ReturnStatement") {
-            handleReturn(obj)
-        }
+        typeHandler(obj);
 
         if (obj.body) {
-            // line++
-            getBody(obj.body)
+            getBody(obj.body);
         }
-
-        // line++;
     }
 
 }
 
-function recursiveChilds(obj) {
-    if (obj.type == "BinaryExpression") {
-        var operator = obj.operator;
-        if (obj.left && obj.right) {
-            return `(  ${recursiveChilds(obj.left)} ${operator} ${recursiveChilds(obj.right)} )`
-        }
-    } else if (obj.type == "Literal") {
-        return obj.value
-    } else if (obj.type == "Identifier") {
-        return obj.name
-    } else if (obj.type == "MemberExpression") {
-        if(obj.computed){
-            var prop = obj.property.type == "Literal" ? obj.property.value : obj.property.name
-            return '' + obj.object.name + '[' + prop + ']'
-        }else{
-            var prop = obj.property ? obj.object.name + "." + obj.property.name : obj.object.name
-            return prop
-        }
-    } else if (obj.type == "UnaryExpression") {
-        var prop = obj.argument.type == "Literal" ? obj.argument.value : obj.argument.name
-
-        return '' + obj.operator + prop
+function handleMemberExpression(obj) {
+    var prop;
+    if (obj.computed) {
+        prop = recursiveChilds(obj.property);
+        prop = prop.startsWith('(') ? prop.substring(1).substring(0, prop.length - 2).trim() : prop;
+        return '' + obj.object.name + '[' + prop + ']';
+    } else {
+        prop = obj.property ? obj.object.name + '.' + obj.property.name : obj.object.name;
+        return prop;
     }
+}
+
+function handleBinaryExpression(obj) {
+    if (obj.left && obj.right)
+        return `(  ${recursiveChilds(obj.left)} ${obj.operator} ${recursiveChilds(obj.right)} )`;
+    return '';
+}
+
+function recursiveChildsHandler(obj) {
+    var res, prop;
+    if (obj.type == 'BinaryExpression') {
+        res = handleBinaryExpression(obj);
+    } else if (obj.type == 'MemberExpression') {
+        res = handleMemberExpression(obj);
+    } else if (obj.type == 'UnaryExpression') {
+        prop = obj.argument.type == 'Literal' ? obj.argument.value : obj.argument.name;
+        res = '' + obj.operator + prop;
+    }
+
+    return res;
+}
+
+function recursiveChilds(obj) {
+    var res;
+    res = recursiveChildsHandler(obj);
+
+    res = obj.type == 'Literal' ? obj.value : obj.type == 'Identifier' ? obj.name : res;
+    return res;
 }
 
 function printTable() {
     _html = '';
     _container.forEach(obj => {
-        obj.value = obj.value == undefined ? '' : obj.value
-        _html += `<tr><td>${obj.line}</td><td>${obj.type}</td><td>${obj.name}</td><td>${obj.condition}</td><td>${obj.value}</td></tr>`
-    })
+        obj.value = obj.value == undefined ? '' : obj.value;
+        _html += `<tr><td>${obj.line}</td><td>${obj.type}</td><td>${obj.name}</td><td>${obj.condition}</td><td>${obj.value}</td></tr>`;
+    });
 
-    document.getElementById('sol').style.display = 'table';
-    document.getElementById('outputTable').innerHTML = _html
+    return _html;
 }
 
 function clearTable() {
     _container = [];
     line = 0;
-
-    printTable()
 }
 
 module.exports = {
@@ -273,5 +341,4 @@ module.exports = {
     handleVarDec,
     handleParams,
     handleAlternate,
-    handleConsequent
-}
+};
