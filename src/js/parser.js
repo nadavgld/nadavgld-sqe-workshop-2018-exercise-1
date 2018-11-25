@@ -106,7 +106,7 @@ function handleConsequent(obj) {
 function handleInnerStates(obj) {
     // if (obj.consequent)
     handleConsequent(obj);
-    
+
     if (obj.alternate)
         handleAlternate(obj);
 }
@@ -250,9 +250,10 @@ function typeHandler2(obj) {
 function typeHandler3(obj) {
     if (obj.type == 'ReturnStatement') {
         handleReturn(obj);
-        // } else if (obj.type == 'ForStatement') {
-    } else {
+    } else if (obj.type == 'ForStatement') {
         handleForStatement(obj);
+    } else {
+        getBody(obj.body);
     }
 }
 
